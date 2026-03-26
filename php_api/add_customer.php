@@ -1,58 +1,66 @@
 <?php
-header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
 
 include 'condb.php';
 
-$input = json_decode(file_get_contents('php://input'), true);
-if (!$input) {
-    $input = $_POST;
+// รับค่า JSON จาก client
+$data = json_decode(file_get_contents("php://input"), true);
+
+// เช็คว่าข้อมูลครบถ้วนหรือไม่
+if (
+    empty($data['firstName']) ||
+    empty($data['lastName']) ||
+    empty($data['phone']) ||
+    empty($data['username']) ||
+    empty($data['password'])
+) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "กรุณากรอกข้อมูลให้ครบ"
+    ]);
+    exit;
 }
-
-$firstName = trim($input['firstName'] ?? '');
-$lastName = trim($input['lastName'] ?? '');
-$phone = trim($input['phone'] ?? '');
-$username = trim($input['username'] ?? '');
-$password = trim($input['password'] ?? '');
-
-if (!$firstName || !$lastName || !$phone || !$username || !$password) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Required fields are missing']);
+ // เช็คว่าข้อมูลเป็น JSON หรือไม่
+if (!$data) {
+    echo json_encode([
+        "status" => "error",
+        "message" => "รูปแบบ JSON ไม่ถูกต้อง"
+    ]);
     exit;
 }
 
-try {
-    $stmt = $conn->prepare('SELECT customer_id FROM customers WHERE username = :username');
-    $stmt->execute(['username' => $username]);
-    if ($stmt->fetch()) {
-        http_response_code(409);
-        echo json_encode(['error' => 'Username already exists']);
-        exit;
+  // เข้ารหัสรหัสผ่าน
+    $password_hash = password_hash($data["password"], PASSWORD_BCRYPT);
+
+    try {
+         // เพิ่มข้อมูลลูกค้า
+        $sql = "INSERT INTO Customers (firstName, lastName, phone, username, password)
+                VALUES (:firstName, :lastName, :phone, :username, :password)";
+
+        $stmt = $conn->prepare($sql);
+
+        $stmt->bindParam(":firstName", $data['firstName']);
+        $stmt->bindParam(":lastName", $data['lastName']);
+        $stmt->bindParam(":phone", $data['phone']);
+        $stmt->bindParam(":username", $data['username']);
+        $stmt->bindParam(":password", $password_hash);
+
+        if ($stmt->execute()) {
+            echo json_encode([
+                "status" => "success",
+                "message" => "เพิ่มข้อมูลเรียบร้อย"
+            ]);
+        } else {
+            echo json_encode([
+                "status" => "error",
+                "message" => "ไม่สามารถเพิ่มข้อมูลได้"
+            ]);
+        }
+
+    } catch (PDOException $e) {
+        echo json_encode([
+            "status" => "error",
+            "message" => $e->getMessage()
+        ]);
     }
 
-    $stmt = $conn->prepare('INSERT INTO customers (firstName, lastName, phone, username, password) VALUES (:firstName, :lastName, :phone, :username, :password)');
-    $result = $stmt->execute([
-        'firstName' => $firstName,
-        'lastName' => $lastName,
-        'phone' => $phone,
-        'username' => $username,
-        'password' => $password
-    ]);
-
-    if ($result) {
-        echo json_encode(['success' => true, 'message' => 'Registered successfully']);
-    } else {
-        http_response_code(500);
-        echo json_encode(['error' => 'Insert failed']);
-    }
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
-}
+?>
